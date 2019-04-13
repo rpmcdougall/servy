@@ -1,6 +1,13 @@
 defmodule Servy.Handler do
-  require Logger
+  import Servy.Plugins, only: [rewrite_path: 1, log: 1, track: 1]
+  import Servy.Parser, only: [parse: 1]
 
+  alias Servy.Conv
+
+  @pages_path Path.expand("pages", File.cwd!)
+  @moduledoc "Handles HTTP Requests."
+
+  @doc "Transforms the request into a response."
   def handle(request) do
     request
     |> parse
@@ -11,83 +18,99 @@ defmodule Servy.Handler do
     |> format_response
   end
 
-  def log(conv) do
-    Logger.info(inspect(conv))
-    conv
+    ## Multi-clause functions vs case ##
+    def handle_file({:ok, content}, conv) do
+      %Conv{ conv | status: 200, resp_body: content }
+    end
+
+    def handle_file({:error, :enoent}, conv) do
+      %Conv{ conv | status: 404, resp_body: "File not found!" }
+    end
+
+    def handle_file({:error, reason}, conv) do
+      %Conv{ conv | status: 500, resp_body: "File error: #{reason}" }
+    end
+
+    # case File.read(file) do
+      #   {:ok, content} ->
+      #     %Conv{conv | status: 200, resp_body: content}
+      #   {:error, :enoent} ->
+      #     %Conv{conv | status: 404, resp_body: "File not found!"}
+      #   {:error, reason} ->
+      #     %Conv{conv | status: 500, resp_body: "File error: #{reason}"}
+      # end
+
+   ############################################
+
+
+  def route(%Conv{method: "GET", path: "/wildthings"} = conv) do
+    %Conv{conv | status: 200, resp_body: "Bears, Lions, Tigers"}
   end
 
-  def track(%{status: 404, path: path} = conv) do
-    Logger.warn "Warning: #{path} not available."
-    conv
+  def route(%Conv{method: "GET", path: "/bears"} = conv) do
+    %Conv{conv | status: 200, resp_body: "Teddy, Smokey, Paddington"}
   end
 
-  def track(conv), do: conv
-
-  def rewrite_path(%{path: "/wildlife"} = conv) do
-    %{conv | path: "/wildthings"}
+  def route(%Conv{method: "GET", path: "/about"} = conv) do
+      @pages_path
+      |> Path.join("about.html")
+      |> File.read
+      |> handle_file(conv)
   end
 
-  def rewrite_path(conv), do: conv
+ # Exercise,serve a form
+ def route(%Conv{method: "GET", path: "/bears/new"} = conv) do
+    @pages_path
+        |> Path.join("about.html")
+        |> File.read
+        |> handle_file(conv)
+end
 
-  def parse(request) do
-    [method, path, _] =
-      request
-      |> String.split("\n")
-      |> List.first
-      |> String.split(" ")
-    %{method: method,
-      path: path,
-      resp_body: " ",
-      status: nil
-    }
+# Exercise serve arbirtary pages
+
+  def route(%Conv{method: "GET", path: "/bears" <> id} = conv) do
+    %Conv{conv | status: 200, resp_body: "Bear #{id}"}
   end
 
-  # def route(conv) do
-  #   route(conv, conv.method, conv.path)
-  # end
+# Exercise serve arbirtary pages
 
-  def route(%{method: "GET", path: "/wildthings"} = conv) do
-    %{conv | status: 200, resp_body: "Bears, Lions, Tigers"}
-  end
+def route(%Conv{method: "GET", path: "/pages/" <> file} = conv) do
+  file = Path.join(@pages_path, file <> ".html")
 
-  def route(%{method: "GET", path: "/bears"} = conv) do
-    %{conv | status: 200, resp_body: "Teddy, Smokey, Paddington"}
-  end
+  case File.read(file) do
+    {:ok, content} ->
+      %Conv{ conv | status: 200, resp_body: content }
 
-  def route(%{method: "GET", path: "/bears" <> id} = conv) do
-    %{conv | status: 200, resp_body: "Bear #{id}"}
+    {:error, :enoent} ->
+      %Conv{ conv | status: 404, resp_body: "File not found!"}
+
+    {:error, reason } ->
+      %Conv{ conv | status: 500, resp_body: "File error: #{reason}"}
   end
+end
+
+
+
+
 
   ## Exercise Implement Delete
-  def route(%{method: "DELETE", path: "/bears" <> _id} = conv) do
-    %{conv | status: 204, resp_body: " "}
+  def route(%Conv{method: "DELETE", path: "/bears" <> _id} = conv) do
+    %Conv{conv | status: 204, resp_body: " "}
   end
 
-  def route(%{path: path} = conv) do
-    %{conv | status: 404, resp_body: "No #{path} here!"}
+  def route(%Conv{path: path} = conv) do
+    %Conv{conv | status: 404, resp_body: "No #{path} here!"}
   end
 
-  def format_response(conv) do
+  def format_response(%Conv{} = conv) do
     #TODO Use values in map to create and HTTP resposne string
     """
-    HTTP/1.1 #{conv.status} #{status_reason(conv.status)}
+    HTTP/1.1 #{Conv.full_status(conv)}
     Content-Type: text/html
     Content-Length: #{String.length(conv.resp_body)}
 
     #{conv.resp_body}
     """
-  end
-
-  defp status_reason(code) do
-    %{
-      200 => "OK",
-      201 => "Created",
-      204 => "No Content",
-      401 => "Unauthorized",
-      403 => "Forbidden",
-      404 => "Not Found",
-      500 => "Internal Server Error"
-    }[code]
   end
 
 end
@@ -151,3 +174,16 @@ request =
 
           response = Servy.Handler.handle(delete)
           IO.puts response
+
+
+          static  =
+            """
+            GET /about HTTP/1.1
+            Host: example.com
+            User-Agent:ExampleBrowser/1.0
+            Accept:*/*
+            """
+
+
+            response = Servy.Handler.handle(static)
+            IO.puts response
