@@ -10,7 +10,7 @@ defmodule Servy.Plugins do
 
   @doc "Logs 404 requests."
   def track(%Conv{status: 404, path: path} = conv) do
-    Logger.warn "Warning: #{path} not available."
+    Logger.warn("Warning: #{path} not available.")
     conv
   end
 
